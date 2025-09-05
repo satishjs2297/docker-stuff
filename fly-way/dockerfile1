@@ -1,0 +1,60 @@
+# Start from Debian (lightweight base)
+FROM debian:bullseye-slim
+
+# Set versions
+ARG FLYWAY_VERSION=10.19.0
+ARG POSTGRES_VERSION=16
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    gnupg \
+    lsb-release \
+    unzip \
+    openjdk-17-jdk \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# --------------------------
+# Install PostgreSQL
+# --------------------------
+RUN curl https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - \
+    && echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
+    && apt-get install -y postgresql-${POSTGRES_VERSION} postgresql-client-${POSTGRES_VERSION} \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create postgres data directory
+RUN mkdir -p /var/lib/postgresql/data && chown -R postgres:postgres /var/lib/postgresql
+
+# --------------------------
+# Install Flyway
+# --------------------------
+RUN curl -L "https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/${FLYWAY_VERSION}/flyway-commandline-${FLYWAY_VERSION}-linux-x64.tar.gz" -o flyway.tar.gz \
+    && tar -xzf flyway.tar.gz \
+    && mv flyway-${FLYWAY_VERSION} /flyway \
+    && ln -s /flyway/flyway /usr/local/bin/flyway \
+    && rm flyway.tar.gz
+
+# --------------------------
+# Environment
+# --------------------------
+ENV POSTGRES_USER=flyway_user \
+    POSTGRES_PASSWORD=flyway_pass \
+    POSTGRES_DB=flyway_db \
+    PGDATA=/var/lib/postgresql/data
+
+# Add migrations directory
+WORKDIR /flyway/sql
+
+# Expose Postgres port
+EXPOSE 5432
+
+# --------------------------
+# Entrypoint script
+# --------------------------
+# Runs Postgres in the background, waits, then runs Flyway
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+ENTRYPOINT ["docker-entrypoint.sh"]
