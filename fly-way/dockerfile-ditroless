@@ -1,0 +1,48 @@
+# -------- Stage 1: Build PostgreSQL + Flyway --------
+FROM debian:bullseye AS builder
+
+ARG POSTGRES_VERSION=16.4
+ARG FLYWAY_VERSION=10.19.0
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libreadline-dev \
+    zlib1g-dev \
+    curl \
+    unzip \
+    openjdk-17-jdk \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build PostgreSQL from source
+RUN curl -L https://ftp.postgresql.org/pub/source/v${POSTGRES_VERSION}/postgresql-${POSTGRES_VERSION}.tar.gz -o postgres.tar.gz \
+    && tar -xzf postgres.tar.gz \
+    && cd postgresql-${POSTGRES_VERSION} \
+    && ./configure --prefix=/usr/local/pgsql \
+    && make && make install
+
+# Download Flyway CLI
+RUN curl -L "https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/${FLYWAY_VERSION}/flyway-commandline-${FLYWAY_VERSION}-linux-x64.tar.gz" -o flyway.tar.gz \
+    && tar -xzf flyway.tar.gz \
+    && mv flyway-${FLYWAY_VERSION} /flyway
+
+# -------- Stage 2: Distroless runtime --------
+FROM gcr.io/distroless/base
+
+# Runtime environment
+ENV PATH=/usr/local/pgsql/bin:/flyway:$PATH \
+    PGDATA=/var/lib/postgresql/data \
+    POSTGRES_USER=flyway_user \
+    POSTGRES_PASSWORD=flyway_pass \
+    POSTGRES_DB=flyway_db
+
+# Copy compiled binaries + Flyway
+COPY --from=builder /usr/local/pgsql /usr/local/pgsql
+COPY --from=builder /flyway /flyway
+
+# Copy entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/
+
+WORKDIR /flyway/sql
+EXPOSE 5432
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
